@@ -302,7 +302,7 @@ void get_calibration_data(k4a_calibration_t *calibration,
     k4a_calibration_extrinsics_t calib_extrinsics =
         (*calibration).extrinsics[K4A_CALIBRATION_TYPE_DEPTH][K4A_CALIBRATION_TYPE_COLOR];
     // printf("\n===== Device %d: %d =====\n", (int)deviceIndex, get_serial(device));
-    // print_calibration_properties(calib);
+    print_calibration_properties(calib);
 
     // Declare memory space for intrinsics, and extrinsics write values to memory
     float intrinsics[] = { calib.intrinsics.parameters.param.cx,           calib.intrinsics.parameters.param.cy,
@@ -398,33 +398,41 @@ int main(int argc, char **argv)
     float *dcam_kinect_extrinsics = (float *)malloc(EXTRINSIC_BYTE_SIZE);
     float *ccam_kinect_intrinsics = (float *)malloc(INTRINSIC_BYTE_SIZE);
     float *ccam_kinect_extrinsics = (float *)malloc(EXTRINSIC_BYTE_SIZE);
-    FrameProps frame_props;
-    get_calibration_data(&calibration, ccam_kinect_intrinsics, ccam_kinect_extrinsics, &frame_props, 0);
-    get_calibration_data(&calibration, dcam_kinect_intrinsics, dcam_kinect_extrinsics, &frame_props, 1);
+    FrameProps color_frame_props;
+    FrameProps depth_frame_props;
+    get_calibration_data(&calibration, ccam_kinect_intrinsics, ccam_kinect_extrinsics, &color_frame_props, 0);
+    get_calibration_data(&calibration, dcam_kinect_intrinsics, dcam_kinect_extrinsics, &depth_frame_props, 1);
 
     /*printf("\nKinect intrinsics %ld, Kinect Extrinsics %ld, Frame Properties %ld",
            sizeof(dcam_kinect_intrinsics),
            sizeof(dcam_kinect_extrinsics),
            sizeof(frame_props));*/
-    printf("\nFrame properties %d, %d, %f\n", frame_props.width, frame_props.height, frame_props.metric_radius);
+    printf("\nFrame properties %d, %d, %f\n",
+           color_frame_props.width,
+           color_frame_props.height,
+           color_frame_props.metric_radius);
     // send camera intrinsics and extrinsics first
-    unsigned char buffer[sizeof(frame_props)];
-    serialize_frame_props(buffer, &frame_props);
-    printf("\nof size %ld\n", sizeof(frame_props));
+    // unsigned char buffer[sizeof(frame_props)];
+    // serialize_frame_props(buffer, &frame_props);
+    // printf("\nof size %ld\n", sizeof(frame_props));
     // int camera_calib_props_size = sizeof(frame_props) + INTRINSIC_BYTE_SIZE + EXTRINSIC_BYTE_SIZE;
-    int camera_calib_props_size = 120;
-    printf("Camera calib prop size %d", camera_calib_props_size);
-    char *camera_calib_buffer = (char *)malloc(camera_calib_props_size);
-    memcpy(camera_calib_buffer, dcam_kinect_extrinsics, EXTRINSIC_BYTE_SIZE);
-    memcpy(camera_calib_buffer + EXTRINSIC_BYTE_SIZE, dcam_kinect_intrinsics, INTRINSIC_BYTE_SIZE);
+    int camera_calib_props_size = 240;
     // memcpy(camera_calib_buffer+sizeof(dcam_kinect_extrinsics)/sizeof(float) +
     // sizeof(dcam_kinect_intrinsics)/sizeof(float), &frame_props.width, 4); memcpy(camera_calib_buffer,
     // &frame_props.height, 4); memcpy(camera_calib_buffer, &frame_props.metric_radius, 4);
     // memcpy(camera_calib_buffer + 108, &buffer,
     //        12); // copy camera calib props first
-    memcpy(camera_calib_buffer + 108, &frame_props.width, 4);
-    memcpy(camera_calib_buffer + 112, &frame_props.height, 4);
-    memcpy(camera_calib_buffer + 116, &frame_props.metric_radius, 4);
+    char *camera_calib_buffer = (char *)malloc(camera_calib_props_size);
+    memcpy(camera_calib_buffer, ccam_kinect_extrinsics, EXTRINSIC_BYTE_SIZE);
+    memcpy(camera_calib_buffer + EXTRINSIC_BYTE_SIZE, ccam_kinect_intrinsics, INTRINSIC_BYTE_SIZE);
+    memcpy(camera_calib_buffer + 108, &color_frame_props.width, 4);
+    memcpy(camera_calib_buffer + 112, &color_frame_props.height, 4);
+    memcpy(camera_calib_buffer + 116, &color_frame_props.metric_radius, 4);
+    memcpy(camera_calib_buffer + 120, dcam_kinect_extrinsics, EXTRINSIC_BYTE_SIZE);
+    memcpy(camera_calib_buffer + EXTRINSIC_BYTE_SIZE + 120, dcam_kinect_intrinsics, INTRINSIC_BYTE_SIZE);
+    memcpy(camera_calib_buffer + 108 + 120, &depth_frame_props.width, 4);
+    memcpy(camera_calib_buffer + 112 + 120, &depth_frame_props.height, 4);
+    memcpy(camera_calib_buffer + 116 + 120, &depth_frame_props.metric_radius, 4);
     send(new_socket, camera_calib_buffer, camera_calib_props_size, 0);
     free(camera_calib_buffer);
     // send(new_socket, buffer, sizeof(frame_props), 0);
@@ -576,7 +584,7 @@ int main(int argc, char **argv)
             send(new_socket, color_img_pkt, total_frame_size_color + sizeof(int32_t), 0);
             free(color_img_pkt);
 
-            char color_path[37]; // save to disk
+            /*char color_path[37]; // save to disk
             snprintf(color_path, sizeof(color_path), "/home/meteor/Desktop/color%d.bytes", frameNum);
             // printf("\nAttempt to write file to %s\n", path);
             FILE *color_file = fopen(color_path, "wb");
@@ -584,7 +592,7 @@ int main(int argc, char **argv)
                    sizeof(int32_t),
                    k4a_image_get_height_pixels(color_image) * k4a_image_get_width_pixels(color_image),
                    color_file);
-            fclose(color_file);
+            fclose(color_file);*/
 
             k4a_image_release(color_image);
         }
@@ -677,7 +685,7 @@ int main(int argc, char **argv)
             // send(new_socket, output_buffer, total_frame_size, 0);
             free(depth_img_pkt);
 
-            char path[37]; // save to disk
+            /*char path[37]; // save to disk
             snprintf(path, sizeof(path), "/home/meteor/Desktop/depth%d.bytes", frameNum);
             // printf("\nAttempt to write file to %s\n", path);
             FILE *file = fopen(path, "wb");
@@ -685,7 +693,7 @@ int main(int argc, char **argv)
                    sizeof(short),
                    k4a_image_get_height_pixels(depth_image) * k4a_image_get_width_pixels(depth_image),
                    file);
-            fclose(file);
+            fclose(file);*/
 
             depth_frame_size = cJSON_CreateNumber(total_frame_size);
             total_delta_rvl = cJSON_CreateNumber(diff_bytes);

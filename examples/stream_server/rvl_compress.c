@@ -40,9 +40,7 @@ int DecodeVLE()
     return value;
 }
 
-int CompressRVL(short *input,
-                char *output,
-                int numPixels)
+int CompressRVL(short *input, char *output, int numPixels)
 {
     // size_t passed_array_size = sizeof(*roi) / sizeof(Roi);
     buffer = pBuffer = (int *)output;

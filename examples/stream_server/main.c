@@ -24,29 +24,7 @@
 
 #define SIZEOF(a) sizeof(a) / sizeof(*a)
 
-void func(int sockfd)
-{
-    char buff[80];
-    int n;
-    for (;;)
-    {
-        bzero(buff, sizeof(buff));
-        printf("Enter the string : ");
-        n = 0;
-        while ((buff[n++] = getchar()) != '\n')
-            ;
-        // write(sockfd, buff, sizeof(buff));
-        send(sockfd, &buff, sizeof(buff), 0);
-        // bzero(buff, sizeof(buff));
-        // // read(sockfd, buff, sizeof(buff));
-        // printf("From Server : %s", buff);
-        // if ((strncmp(buff, "exit", 4)) == 0)
-        // {
-        //     printf("Client Exit...\n");
-        //     break;
-        // }
-    }
-}
+int FRAME_SIZE_HEADER_MSG;
 
 int connect_to_server()
 {
@@ -89,6 +67,7 @@ int main(int argc, char **argv)
     k4a_device_t device = NULL;
     const int32_t TIMEOUT_IN_MS = 1000;
     int captureFrameCount;
+    int frame_number = 0;
     k4a_capture_t capture = NULL;
 
     if (argc < 2)
@@ -147,7 +126,12 @@ int main(int argc, char **argv)
     while (captureFrameCount--)
     {
         k4a_image_t color_image;
-
+        k4a_image_t depth_image;
+        // char *color_img_pkt;
+        // char *depth_img_pkt;
+        char *tcp_packet;
+        int32_t total_frame_size_color = 0;
+        int32_t total_frame_size_depth = 0;
         // Get a depth frame
         switch (k4a_device_get_capture(device, &capture, TIMEOUT_IN_MS))
         {
@@ -163,21 +147,61 @@ int main(int argc, char **argv)
         }
 
         color_image = k4a_capture_get_color_image(capture);
+        depth_image = k4a_capture_get_depth_image(capture);
 
-        if (color_image)
+        if (color_image && depth_image)
         {
             uint32_t *input_color_img = (uint32_t *)k4a_image_get_buffer(color_image);
-            int32_t total_frame_size_color = (int32_t)k4a_image_get_size(color_image);
-            char *color_img_pkt = (char *)malloc(total_frame_size_color + sizeof(int32_t));
-            memcpy(color_img_pkt, &total_frame_size_color, sizeof(int32_t));
-            memcpy(color_img_pkt + sizeof(int32_t), input_color_img, k4a_image_get_size(color_image));
+            total_frame_size_color = (int32_t)k4a_image_get_size(color_image);
+            // color_img_pkt = (char *)malloc(total_frame_size_color + sizeof(int32_t));
+            // memcpy(color_img_pkt, &total_frame_size_color, sizeof(int32_t));
+            // memcpy(color_img_pkt + sizeof(int32_t), input_color_img, k4a_image_get_size(color_image));
 
+            // depth image
+            short *input_img = (short *)(void *)k4a_image_get_buffer(depth_image);
+            // initialize byte array
+            char output_buffer[k4a_image_get_height_pixels(depth_image) * k4a_image_get_width_pixels(depth_image)];
+            total_frame_size_depth = (int32_t)sizeof(output_buffer);
+            // depth_img_pkt = (char *)malloc(total_frame_size_depth + sizeof(int32_t));
+            int diff_bytes = CompressRVL(input_img,
+                                         output_buffer,
+                                         k4a_image_get_height_pixels(depth_image) *
+                                             k4a_image_get_width_pixels(depth_image));
+            printf("Diff bytes %d, total frame size %d\n", diff_bytes, total_frame_size_depth);
+            // memcpy(depth_img_pkt, &total_frame_size_depth, sizeof(int32_t));
+            // memcpy(depth_img_pkt + sizeof(int32_t), output_buffer, total_frame_size_depth);
+            printf("Consturcting tcp packet\n");
+            // two frame headers, frame number, color wxh, depth wxh, along with color+depth frame data
+            tcp_packet = (char *)malloc(total_frame_size_color + total_frame_size_depth + (sizeof(int32_t) * 7));
+
+            int32_t c_width = k4a_image_get_width_pixels(color_image);
+            int32_t c_height = k4a_image_get_height_pixels(color_image);
+            int32_t d_width = k4a_image_get_width_pixels(depth_image);
+            int32_t d_height = k4a_image_get_height_pixels(depth_image);
+
+            memcpy(tcp_packet, &frame_number, sizeof(int32_t));
+            memcpy(tcp_packet + sizeof(int32_t), &c_width, sizeof(int32_t));
+            memcpy(tcp_packet + (sizeof(int32_t) * 2), &c_height, sizeof(int32_t));
+            memcpy(tcp_packet + (sizeof(int32_t) * 3), &total_frame_size_color, sizeof(int32_t));
+            memcpy(tcp_packet + (sizeof(int32_t) * 4), input_color_img, total_frame_size_color);
+
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 4), &d_width, sizeof(int32_t));
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 5), &d_height, sizeof(int32_t));
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 6),
+                   &total_frame_size_depth,
+                   sizeof(int32_t));
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 7), output_buffer, total_frame_size_depth);
             // send(new_socket, input_color_img, total_frame_size_color, 0);
-            send(sockfd, color_img_pkt, total_frame_size_color + sizeof(int32_t), 0);
-            free(color_img_pkt);
-            k4a_image_release(color_image);
+            size_t total_tcp_pkt_size = total_frame_size_color + total_frame_size_depth + (sizeof(int32_t) * 7);
+            send(sockfd, tcp_packet, total_tcp_pkt_size, 0);
+            free(tcp_packet);
         }
+        k4a_image_release(color_image);
+        k4a_image_release(depth_image);
+        // release memory and capture
+        // free(depth_img_pkt);
         k4a_capture_release(capture);
+        frame_number++;
     }
     // printf("%d\n", sockfd);
     // close the socket
