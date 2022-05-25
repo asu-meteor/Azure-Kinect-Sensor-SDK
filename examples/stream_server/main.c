@@ -19,7 +19,7 @@
 #include "rvl_compress.h"
 
 #define SA struct sockaddr
-#define PORT 11000
+#define PORT 11001
 #define MAXLINE 1024
 
 #define SIZEOF(a) sizeof(a) / sizeof(*a)
@@ -178,21 +178,22 @@ int main(int argc, char **argv)
             int32_t c_height = k4a_image_get_height_pixels(color_image);
             int32_t d_width = k4a_image_get_width_pixels(depth_image);
             int32_t d_height = k4a_image_get_height_pixels(depth_image);
-
+            printf("Frame number %d\n", frame_number);
             memcpy(tcp_packet, &frame_number, sizeof(int32_t));
             memcpy(tcp_packet + sizeof(int32_t), &c_width, sizeof(int32_t));
             memcpy(tcp_packet + (sizeof(int32_t) * 2), &c_height, sizeof(int32_t));
             memcpy(tcp_packet + (sizeof(int32_t) * 3), &total_frame_size_color, sizeof(int32_t));
             memcpy(tcp_packet + (sizeof(int32_t) * 4), input_color_img, total_frame_size_color);
 
-            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 4), &d_width, sizeof(int32_t));
-            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 5), &d_height, sizeof(int32_t));
-            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 6),
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 4), &frame_number, sizeof(int32_t));
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 5), &d_width, sizeof(int32_t));
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 6), &d_height, sizeof(int32_t));
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 7),
                    &total_frame_size_depth,
                    sizeof(int32_t));
-            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 7), output_buffer, total_frame_size_depth);
+            memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 8), output_buffer, total_frame_size_depth);
             // send(new_socket, input_color_img, total_frame_size_color, 0);
-            size_t total_tcp_pkt_size = total_frame_size_color + total_frame_size_depth + (sizeof(int32_t) * 7);
+            size_t total_tcp_pkt_size = total_frame_size_color + total_frame_size_depth + (sizeof(int32_t) * 8);
             send(sockfd, tcp_packet, total_tcp_pkt_size, 0);
             free(tcp_packet);
         }
