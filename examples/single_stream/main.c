@@ -506,7 +506,7 @@ int main(int argc, char **argv)
             unsigned long long capture_ms = (unsigned long long)(tv.tv_sec) * 1000 +
                                             (unsigned long long)(tv.tv_usec) / 1000;
             capture_ts = cJSON_CreateNumber(capture_ms);
-            cJSON_AddItemToObject(capture_obj, "capture_ts", capture_ts);
+            cJSON_AddItemToObject(capture_obj, "ts_capture", capture_ts);
             break;
         case K4A_WAIT_RESULT_TIMEOUT:
             printf("Timed out waiting for a capture\n");
@@ -560,10 +560,10 @@ int main(int argc, char **argv)
             cJSON *num_color_zeros_JSON = cJSON_CreateNumber(num_color_zeros);
             cJSON *color_frame_size = cJSON_CreateNumber(total_frame_size_color);
             cJSON_AddItemToObject(color_frame_json, "is_depth_frame", cJSON_CreateNumber(0));
-            cJSON_AddItemToObject(color_frame_json, "roi_color_latency", roi_color_latency);
+            cJSON_AddItemToObject(color_frame_json, "lat_roi_color", roi_color_latency);
             cJSON_AddItemToObject(color_frame_json, "num_color_zeros_JSON", num_color_zeros_JSON);
-            cJSON_AddItemToObject(color_frame_json, "color_frame_size", color_frame_size);
-            cJSON_AddItemToObject(color_frame_json, "color_frame_ts", color_frame_ts);
+            cJSON_AddItemToObject(color_frame_json, "color_byte_size", color_frame_size);
+            cJSON_AddItemToObject(color_frame_json, "ts_color_frame", color_frame_ts);
             // send frame size followed by frame data
             // send(new_socket, &total_frame_size_color, sizeof(total_frame_size_color), 0);
             /*printf("\nColor frame addr size %ld, color frame byte size %d\n",
@@ -581,7 +581,12 @@ int main(int argc, char **argv)
             memcpy(color_img_pkt + sizeof(int32_t), input_color_img, k4a_image_get_size(color_image));
 
             // send(new_socket, input_color_img, total_frame_size_color, 0);
+            clock_t t_color_send;
+            t_color_send = clock();
             send(new_socket, color_img_pkt, total_frame_size_color + sizeof(int32_t), 0);
+            t_color_send = clock() - t_color_send; // timer difference
+            double send_color_time = ((double)t_color_send) / CLOCKS_PER_SEC;
+            cJSON_AddItemToObject(color_frame_json, "lat_tcp_send_color", cJSON_CreateNumber(send_color_time));
             free(color_img_pkt);
 
             /*char color_path[37]; // save to disk
@@ -680,8 +685,13 @@ int main(int argc, char **argv)
             memcpy(depth_img_pkt + sizeof(int32_t), output_buffer, total_frame_size);
             int32_t parse_frame_size_d = *((int32_t *)depth_img_pkt);
             printf("\n Parsed frame size is %d\n", parse_frame_size_d);
-            send(new_socket, depth_img_pkt, total_frame_size + sizeof(int32_t), 0);
 
+            clock_t t_depth_send;
+            t_depth_send = clock();
+            send(new_socket, depth_img_pkt, total_frame_size + sizeof(int32_t), 0);
+            t_depth_send = clock() - t_depth_send; // timer difference
+            double send_depth_time = ((double)t_depth_send) / CLOCKS_PER_SEC;
+            cJSON_AddItemToObject(depth_frame_json, "lat_tcp_send_depth", cJSON_CreateNumber(send_depth_time));
             // send(new_socket, output_buffer, total_frame_size, 0);
             free(depth_img_pkt);
 
@@ -699,11 +709,11 @@ int main(int argc, char **argv)
             total_delta_rvl = cJSON_CreateNumber(diff_bytes);
             json_frame_num = cJSON_CreateNumber(frameNum);
             cJSON_AddItemToObject(depth_frame_json, "is_depth_frame", is_depth);
-            cJSON_AddItemToObject(depth_frame_json, "depth_frame_size", depth_frame_size);
+            cJSON_AddItemToObject(depth_frame_json, "depth_byte_size", depth_frame_size);
             cJSON_AddItemToObject(depth_frame_json, "total_delta_rvl", total_delta_rvl);
-            cJSON_AddItemToObject(depth_frame_json, "rvl_latency", rvl_latency);
-            cJSON_AddItemToObject(depth_frame_json, "frame_num", json_frame_num);
-            cJSON_AddItemToObject(depth_frame_json, "depth_frame_ts", depth_frame_ts);
+            cJSON_AddItemToObject(depth_frame_json, "lat_encodeRVL", rvl_latency);
+            cJSON_AddItemToObject(depth_frame_json, "frame_count", json_frame_num);
+            cJSON_AddItemToObject(depth_frame_json, "ts_depth_frame", depth_frame_ts);
             k4a_image_release(depth_image);
             frameNum++;
             printf("Finish depth frame processes\n");

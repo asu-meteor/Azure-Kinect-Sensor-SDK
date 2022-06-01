@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <k4a/k4a.h>
@@ -16,15 +17,17 @@
 #include <cJSON.h>
 #include <locale.h>
 #include <netdb.h>
+#include <unistd.h>
 #include "rvl_compress.h"
 
 #define SA struct sockaddr
-#define PORT 11001
+#define PORT 11002
 #define MAXLINE 1024
 
 #define SIZEOF(a) sizeof(a) / sizeof(*a)
 
 int FRAME_SIZE_HEADER_MSG;
+int sockfd;
 
 int connect_to_server()
 {
@@ -61,6 +64,17 @@ int connect_to_server()
     return sockfd;
 }
 
+/*void *transmit_frames(void *tcp_packet_args)
+{
+    // pthread_detach(pthread_self());
+    // sockfd = connect_to_server();
+    while (1) {
+      printf("Could send %p\n", tcp_packet_args);
+    }
+    return NULL;
+    // pthread_exit(NULL);
+}*/
+
 int main(int argc, char **argv)
 {
     int returnCode = 1;
@@ -69,6 +83,10 @@ int main(int argc, char **argv)
     int captureFrameCount;
     int frame_number = 0;
     k4a_capture_t capture = NULL;
+    // initialize json
+    char *json_file_str = NULL;
+    cJSON *monitor = cJSON_CreateObject(); // file container
+    cJSON *measurements = cJSON_CreateArray();
 
     if (argc < 2)
     {
@@ -110,7 +128,7 @@ int main(int argc, char **argv)
         goto Exit;
     }
     // start server connection
-    int sockfd = connect_to_server();
+    sockfd = connect_to_server();
 
     // get calibration
     if (K4A_RESULT_SUCCEEDED !=
@@ -120,8 +138,10 @@ int main(int argc, char **argv)
         goto Exit;
     }
 
-    // char *hello = "hello from client";
-    // send(sockfd, hello, strlen(hello), 0);
+    cJSON_AddItemToObject(monitor, "measurements", measurements); // add json array
+
+    /*pthread_t ptid;
+    pthread_create(&ptid, NULL, &transmit_frames, NULL);*/
 
     while (captureFrameCount--)
     {
@@ -151,11 +171,11 @@ int main(int argc, char **argv)
 
         if (color_image && depth_image)
         {
+            cJSON *frame_json = cJSON_CreateObject();
+            cJSON_AddItemToArray(measurements, frame_json);
+
             uint32_t *input_color_img = (uint32_t *)k4a_image_get_buffer(color_image);
             total_frame_size_color = (int32_t)k4a_image_get_size(color_image);
-            // color_img_pkt = (char *)malloc(total_frame_size_color + sizeof(int32_t));
-            // memcpy(color_img_pkt, &total_frame_size_color, sizeof(int32_t));
-            // memcpy(color_img_pkt + sizeof(int32_t), input_color_img, k4a_image_get_size(color_image));
 
             // depth image
             short *input_img = (short *)(void *)k4a_image_get_buffer(depth_image);
@@ -194,7 +214,13 @@ int main(int argc, char **argv)
             memcpy(tcp_packet + total_frame_size_color + (sizeof(int32_t) * 8), output_buffer, total_frame_size_depth);
             // send(new_socket, input_color_img, total_frame_size_color, 0);
             size_t total_tcp_pkt_size = total_frame_size_color + total_frame_size_depth + (sizeof(int32_t) * 8);
+            clock_t t; // Profile time for TCP send call
+            t = clock();
             send(sockfd, tcp_packet, total_tcp_pkt_size, 0);
+            // end latency timer
+            t = clock() - t; // timer difference
+            double time_taken = ((double)t) / CLOCKS_PER_SEC;
+            cJSON_AddItemToObject(frame_json, "lat_tcp_send", cJSON_CreateNumber(time_taken));
             free(tcp_packet);
         }
         k4a_image_release(color_image);
@@ -207,6 +233,18 @@ int main(int argc, char **argv)
     // printf("%d\n", sockfd);
     // close the socket
     close(sockfd);
+    // pthread_join(ptid, NULL);
+    // write json measurements to disk
+    json_file_str = cJSON_Print(monitor);
+    if (json_file_str == NULL)
+    {
+        printf("Failed to create JSON file\n");
+        goto Exit;
+    }
+    FILE *outputJSON = fopen("./data_.json", "wb");
+    fprintf(outputJSON, "%s\n", json_file_str);
+    fclose(outputJSON);
+    // pthread_exit(NULL);
 Exit:
     if (device != NULL)
     {
